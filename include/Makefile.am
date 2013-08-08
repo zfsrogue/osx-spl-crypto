@@ -11,6 +11,7 @@ noinst_HEADERS += $(top_srcdir)/include/sys/fm/*.h
 noinst_HEADERS += $(top_srcdir)/include/sys/fs/*.h
 noinst_HEADERS += $(top_srcdir)/include/sys/sysevent/*.h
 noinst_HEADERS += $(top_srcdir)/include/sys/*.h
+noinst_HEADERS += $(top_srcdir)/include/sys/crypto/*.h
 noinst_HEADERS += $(top_srcdir)/include/util/*.h
 noinst_HEADERS += $(top_srcdir)/include/vm/*.h
 

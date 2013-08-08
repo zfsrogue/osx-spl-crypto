@@ -60,6 +60,7 @@ AC_CONFIG_FILES([
 	module/Makefile
 	module/spl/Makefile
 	module/splat/Makefile
+	include/sys/crypto/Makefile
 	include/Makefile
 	scripts/Makefile
 	spl.spec
