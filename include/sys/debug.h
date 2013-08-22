@@ -103,7 +103,7 @@ do {									\
 #define __ASSERT(cond)							\
 do {									\
 	if (unlikely(!(cond))) {					\
-	    printk(KERN_EMERG "ASSERTION(" #cond ") failed\n");		\
+	    printf(KERN_EMERG "ASSERTION(" #cond ") failed\n");		\
 	    BUG();							\
 	}								\
 } while (0)
