@@ -477,8 +477,6 @@ int sun_ccm_decrypt_and_auth(rijndael_ctx *cc_aes,
     uint64_t remainder;
     uint64_t avail;
 
-    printf("***decrypt_and_auth\n");
-
     memset(b, 0, sizeof(b));
     memset(a, 0, sizeof(a));
 
