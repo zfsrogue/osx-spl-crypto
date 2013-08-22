@@ -379,7 +379,7 @@ spl_debug_dumplog_internal(dumplog_priv_t *dp)
         snprintf(spl_debug_file_name, sizeof(spl_debug_file_path) - 1,
                  "%s.%ld.%ld", spl_debug_file_path,
 		 get_seconds(), (long)dp->dp_pid);
-        printk("SPL: Dumping log to %s\n", spl_debug_file_name);
+        printf("SPL: Dumping log to %s\n", spl_debug_file_name);
         spl_debug_dump_all_pages(dp, spl_debug_file_name);
 
         current->journal_info = journal_info;
