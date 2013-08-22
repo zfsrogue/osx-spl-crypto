@@ -94,6 +94,9 @@ kern_return_t spl_start (kmod_info_t * ki, void * d)
 
     IOLog("SPL: Loaded module v0.01 (ncpu %d, memsize %llu, pages %llu)\n",
           max_ncpus, total_memory, physmem);
+#ifdef SPL_CRYPTO_CIPHER_TEST
+    cipher_test();
+#endif
     return KERN_SUCCESS;
 }
 

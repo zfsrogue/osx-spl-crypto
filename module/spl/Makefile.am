@@ -32,10 +32,15 @@ noinst_PROGRAMS = spl
 spl_kext_SOURCE =
 
 spl_SOURCES = 	\
+	rijndael-api.c \
+	rijndael-alg-fst.c \
+	sha2.c \
 	spl-atomic.c \
 	spl-condvar.c \
 	spl-cred.c \
 	spl-crypto.c \
+	spl-crypto-ccm.c \
+	spl-crypto-gcm.c \
 	spl-ddi.c \
 	spl-err.c \
 	spl-kmem.c \
