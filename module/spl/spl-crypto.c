@@ -77,6 +77,10 @@ int crypto_get_buffer(crypto_data_t *solaris_buffer, unsigned int *index,
 {
     struct uio *uio = NULL;
 
+    // Assume failure.
+    *addr = NULL;
+    *size = 0;
+
     switch(solaris_buffer->cd_format) {
     case CRYPTO_DATA_RAW: // One buffer.
         // Only one buffer available, asking for any other is wrong
@@ -85,6 +89,7 @@ int crypto_get_buffer(crypto_data_t *solaris_buffer, unsigned int *index,
 
         *size = solaris_buffer->cd_length;
         *addr = solaris_buffer->cd_raw.iov_base;
+        *index = *index + 1;
         return *size;
 
     case CRYPTO_DATA_UIO: // Multiple buffers.

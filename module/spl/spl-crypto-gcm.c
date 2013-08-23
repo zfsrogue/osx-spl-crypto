@@ -377,7 +377,9 @@ int sun_gcm_encrypt_and_auth(rijndael_ctx *cc_aes,
     uint8_t  S[AES_BLOCK_LEN];
 
 #ifdef ZFS_CRYPTO_VERBOSE
-    printf("gcm_encrypt enter\n");
+    printf("gcm_encrypt enter: len %04lx maclen %d, authlen %d\n",
+           plaintext->cd_length,
+           noncelen, authlen);
 #endif
 
     memset(tag, 0, sizeof(tag));
@@ -629,6 +631,12 @@ int sun_gcm_decrypt_and_auth(rijndael_ctx *cc_aes,
     uint8_t  J0[AES_BLOCK_LEN];
     uint8_t  S[AES_BLOCK_LEN];
 
+#ifdef ZFS_CRYPTO_VERBOSE
+    printf("gcm_decrypt enter: len %04lx maclen %d, authlen %d\n",
+           plaintext->cd_length,
+           noncelen, authlen);
+#endif
+
     memset(b, 0, sizeof(b));
     memset(tag, 0, sizeof(tag));
 
@@ -663,7 +671,7 @@ int sun_gcm_decrypt_and_auth(rijndael_ctx *cc_aes,
      * ***********************************************************
      * Decrypt
      */
-    len = crypttext->cd_length;
+    len = plaintext->cd_length;
 
     // Setup first buffers.
     plain_index = 0;
@@ -792,7 +800,7 @@ int sun_gcm_decrypt_and_auth(rijndael_ctx *cc_aes,
      * Compute final GCM authtag
      */
 
-    aes_gcm_final(cc_aes, 0, crypttext->cd_length, H, S, J0, tag);
+    aes_gcm_final(cc_aes, 0, plaintext->cd_length, H, S, J0, tag);
 
 
 #ifdef ZFS_CRYPTO_VERBOSE
@@ -857,5 +865,302 @@ int sun_gcm_decrypt_and_auth(rijndael_ctx *cc_aes,
 
 
 
+
+
+#define SPL_CRYPTO_CIPHER_TEST
+#ifdef SPL_CRYPTO_CIPHER_TEST
+/*
+ * Cipher test
+ */
+
+
+static unsigned char key[16] = {
+    0x5c, 0x95, 0x64, 0x42, 0x00, 0x82, 0x1c, 0x9e,
+    0xd4, 0xac, 0x01, 0x83, 0xc4, 0x9c, 0x14, 0x97
+};
+
+/*
+ * Input data will be set to 00, 01, 02, ....., fe, ff, 00, 01, ...
+ * First iv is set to a8, a9, ...
+ * Using key 'This.Is.A.Key' with len 13
+ * The salt picked was:
+ * 0xf2 0x61 0x01 0x50 0x73 0x54 0x9a 0xd1
+ *
+ * Output produced is: iv=12, iv=a8
+ *
+ * 0x01 0x95 0x6c 0x01 0x63 0x96 0xfd 0x13
+ * 0xba 0x59 0x99 0x36 0x9f 0xd8 0x96 0x09
+ * 0xe5 0xed 0xc1 0x3b 0x2f 0x57 0x0f 0x23 ...
+ * [snip]
+ *
+ * solaris MAC output:
+ *
+ * OSX authtag
+ * 0x18 0x76 0xc0 0xd2 0x22 0x91 0x7b 0x75
+ * 0x3e 0x17 0xe9 0x33 0x74 0xa7 0x10 0x0f
+ */
+
+int cipher_test_gcm()
+{
+    crypto_data_t plaintext, ciphertext;
+    crypto_mechanism_t *mech;
+    crypto_mechanism_t mech_holder;
+    iovec_t *dstiov = NULL;
+    struct uio *dstuio = NULL;
+    unsigned char d = 0;
+    uint64_t size;
+    int i;
+    int maclen;
+    int err;
+    crypto_key_t ckey;
+    unsigned char *plaindata  = NULL;
+    unsigned char *cipherdata = NULL;
+    unsigned char *mac = NULL;
+    unsigned char *iv  = NULL;
+    CK_AES_GCM_PARAMS *ccmp;
+    unsigned char out[180];
+    int ivsize = 12;
+
+    printf("cipher tester loading\n");
+
+    plaindata  = kmem_alloc(512, KM_SLEEP);
+    if (!plaindata) goto out;
+    cipherdata = kmem_alloc(512, KM_SLEEP);
+    if (!cipherdata) goto out;
+    mac = kmem_alloc(16, KM_SLEEP);
+    if (!mac) goto out;
+    iv = kmem_alloc(ivsize, KM_SLEEP);
+    if (!iv) goto out;
+
+    for (i = 0, d = 0; i < sizeof(plaindata); i++, d++)
+        plaindata[i] = d;
+
+    ckey.ck_format = CRYPTO_KEY_RAW;
+    ckey.cku_data.cku_key_value.cku_v_length = sizeof(key) * 8;
+    ckey.cku_data.cku_key_value.cku_v_data   = (void *)&key;
+
+    // Clear all outputs
+    memset(cipherdata, 0, 512);
+    memset(iv, 0, ivsize);
+    memset(mac, 0, 16);
+    memset(&mech_holder, 0, sizeof(mech_holder));
+    mech = &mech_holder;
+
+    size = 512;
+
+    printf("init complete\n");
+
+    // Call cipher
+    plaintext.cd_format = CRYPTO_DATA_RAW;
+    plaintext.cd_offset = 0;
+    plaintext.cd_length = size;
+    plaintext.cd_miscdata = NULL;
+    plaintext.cd_raw.iov_base = (void *)plaindata;
+    plaintext.cd_raw.iov_len = size;
+
+    maclen = 16;
+
+    dstiov = kmem_alloc(sizeof (iovec_t) * 2, KM_SLEEP);
+    if (!dstiov) goto out;
+
+    dstiov[0].iov_base = (void *)cipherdata;
+    dstiov[0].iov_len = size;
+    dstiov[1].iov_base = (void *)mac;
+    dstiov[1].iov_len = maclen;
+
+    dstuio = uio_create( 2,       /* max number of iovecs */
+                         0,            /* current offset */
+                         UIO_SYSSPACE,     /* type of address space */
+                         UIO_WRITE);    /* read or write flag */
+    for (i = 0; i < 2; i++)
+        uio_addiov(dstuio, (user_addr_t)dstiov[i].iov_base, dstiov[i].iov_len);
+
+    //dstuio.uio_iov = dstiov;
+    //dstuio.uio_iovcnt = 2;
+    ciphertext.cd_length = size + maclen;
+
+    //srcuio.uio_segflg = dstuio.uio_segflg = UIO_SYSSPACE;
+
+    ciphertext.cd_format = CRYPTO_DATA_UIO;
+    ciphertext.cd_offset = 0;
+    ciphertext.cd_uio = dstuio;
+    ciphertext.cd_miscdata = NULL;
+
+    printf("loaded CD structs\n");
+
+    //mech = zio_crypt_setup_mech_gen_iv(crypt, type, dedup, key, txg,
+    //                                   bookmark, src, plaintext.cd_length, iv);
+
+    //mech = zio_crypt_setup_mech_common(crypt, type, datalen);
+    mech->cm_type = crypto_mech2id(SUN_CKM_AES_GCM);
+
+    ccmp = kmem_alloc(sizeof (CK_AES_GCM_PARAMS), KM_SLEEP);
+    // ccmp = calloc(sizeof (CK_AES_CCM_PARAMS), 1);
+    ccmp->ulAADLen = 0;
+    ccmp->pAAD = NULL;
+
+    ccmp->ulIvLen = ivsize;
+    ccmp->pIv = (uchar_t *)iv;
+    ccmp->ulTagBits = maclen * 8;
+
+    mech->cm_param = (char *)ccmp;
+    mech->cm_param_len = sizeof (CK_AES_GCM_PARAMS);
+
+
+    //zio_crypt_gen_data_iv(crypt, type, dedup, data, datalen,
+    //                     key, txg, bookmark, iv);
+    printf("Setting iv to: \n");
+    for (i = 0, d=0xa8; i < ivsize; i++,d++) {
+        iv[i] = d;
+        printf("0x%02x ", iv[i]);
+    }
+    printf("\n");
+
+
+    err = crypto_encrypt(mech, &plaintext, &ckey, NULL,
+                         &ciphertext, NULL);
+
+    printf("crypt_encrypt returns 0x%02X\n", err);
+    *out = 0;
+
+    for (i = 0; i < size; i++) {
+
+        snprintf((char*)out, sizeof(out), "%s 0x%02x", out, cipherdata[i]);
+        if ((i % 8)==7) {
+            printf("%s\n", out);
+            *out = 0;
+        }
+    }
+    printf("%s\nMAC output:", out);
+    *out = 0;
+    for (i = 0; i < 16; i++) {
+        snprintf((char *)out, sizeof(out), "%s 0x%02x", out, mac[i]);
+    }
+    printf("%s\n", out);
+
+    printf("%s\nIV output:", out);
+    *out = 0;
+    for (i = 0; i < ivsize; i++) {
+        snprintf((char *)out, sizeof(out), "%s 0x%02x", out, iv[i]);
+    }
+    printf("%s\n", out);
+
+
+    if (dstuio)     uio_free(dstuio);
+
+    IODelay(500);
+    printf("*** Decrypt test\n");
+
+
+
+
+    // Clear all outputs (cipherdata is input)
+    memset(plaindata, 0, 512);
+    memset(iv, 0, ivsize);
+    memset(&mech_holder, 0, sizeof(mech_holder));
+    mech = &mech_holder;
+
+    size = 512;
+
+    printf("init complete\n");
+
+    // Call cipher
+    plaintext.cd_format = CRYPTO_DATA_RAW;
+    plaintext.cd_offset = 0;
+    plaintext.cd_length = size;
+    plaintext.cd_miscdata = NULL;
+    plaintext.cd_raw.iov_base = (void *)plaindata;
+    plaintext.cd_raw.iov_len = size;
+
+    maclen = 16;
+
+    dstiov[0].iov_base = (void *)cipherdata;
+    dstiov[0].iov_len = size;
+    dstiov[1].iov_base = (void *)mac;
+    dstiov[1].iov_len = maclen;
+
+    dstuio = uio_create( 2,       /* max number of iovecs */
+                         0,            /* current offset */
+                         UIO_SYSSPACE,     /* type of address space */
+                         UIO_READ);    /* read or write flag */
+    for (i = 0; i < 2; i++)
+        uio_addiov(dstuio, (user_addr_t)dstiov[i].iov_base, dstiov[i].iov_len);
+
+    //dstuio.uio_iov = dstiov;
+    //dstuio.uio_iovcnt = 2;
+    ciphertext.cd_length = size + maclen;
+
+    //srcuio.uio_segflg = dstuio.uio_segflg = UIO_SYSSPACE;
+
+    ciphertext.cd_format = CRYPTO_DATA_UIO;
+    ciphertext.cd_offset = 0;
+    ciphertext.cd_uio = dstuio;
+    ciphertext.cd_miscdata = NULL;
+
+    printf("loaded CD structs\n");
+
+    //mech = zio_crypt_setup_mech_gen_iv(crypt, type, dedup, key, txg,
+    //                                   bookmark, src, plaintext.cd_length, iv);
+
+    //mech = zio_crypt_setup_mech_common(crypt, type, datalen);
+    mech->cm_type = crypto_mech2id(SUN_CKM_AES_GCM);
+
+    //ccmp = kmem_alloc(sizeof (CK_AES_CCM_PARAMS), KM_SLEEP);
+    // ccmp = calloc(sizeof (CK_AES_CCM_PARAMS), 1);
+    ccmp->ulAADLen = 0;
+    ccmp->pAAD = NULL;
+
+    ccmp->ulIvLen = ivsize;
+    ccmp->pIv = (uchar_t *)iv;
+    ccmp->ulTagBits = maclen * 8;
+
+    mech->cm_param = (char *)ccmp;
+    mech->cm_param_len = sizeof (CK_AES_GCM_PARAMS);
+
+
+    //zio_crypt_gen_data_iv(crypt, type, dedup, data, datalen,
+    //                     key, txg, bookmark, iv);
+    printf("Setting iv to: \n");
+    for (i = 0, d=0xa8; i < ivsize; i++,d++) {
+        iv[i] = d;
+        printf("0x%02x ", iv[i]);
+    }
+    printf("\n");
+
+
+    err = crypto_decrypt(mech, &ciphertext, &ckey, NULL,
+                         &plaintext, NULL);
+
+    printf("crypt_decrypt returns 0x%02X\n", err);
+    *out = 0;
+
+    for (i = 0; i < size; i++) {
+
+        snprintf((char*)out, sizeof(out), "%s 0x%02x", out, plaindata[i]);
+        if ((i % 8)==7) {
+            printf("%s\n", out);
+            *out = 0;
+        }
+    }
+    printf("%s\nMAC output:", out);
+    *out = 0;
+    for (i = 0; i < 16; i++) {
+        snprintf((char *)out, sizeof(out), "%s 0x%02x", out, mac[i]);
+    }
+    printf("%s\n", out);
+
+
+
+ out:
+    if (dstuio)     uio_free(dstuio);
+    if (ccmp)       kmem_free(ccmp, sizeof (CK_AES_GCM_PARAMS));
+    if (plaindata)  kmem_free(plaindata, 512);
+    if (cipherdata) kmem_free(cipherdata, 512);
+    if (mac)        kmem_free(mac, 16);
+    if (iv)         kmem_free(iv, ivsize);
+    if (dstiov)     kmem_free(dstiov, sizeof (iovec_t) * 2);
+    return 0;
+}
+#endif
 
 
