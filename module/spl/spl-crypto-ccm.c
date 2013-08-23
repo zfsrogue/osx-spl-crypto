@@ -477,8 +477,6 @@ int sun_ccm_decrypt_and_auth(rijndael_ctx *cc_aes,
     uint64_t remainder;
     uint64_t avail;
 
-    printf("***decrypt_and_auth\n");
-
     memset(b, 0, sizeof(b));
     memset(a, 0, sizeof(a));
 
@@ -486,7 +484,7 @@ int sun_ccm_decrypt_and_auth(rijndael_ctx *cc_aes,
      * ***********************************************************
      * For AUTH, setup b0 correctly -> "a"
      */
-    len = crypttext->cd_length;
+    len = plaintext->cd_length;
 
     ccm_init_b0(cc_aes, b0, len, nonce, noncelen, authlen, a);
 
@@ -710,15 +708,36 @@ int sun_ccm_decrypt_and_auth(rijndael_ctx *cc_aes,
  */
 
 
-unsigned char key[16] = {
+static unsigned char key[16] = {
     0x5c, 0x95, 0x64, 0x42, 0x00, 0x82, 0x1c, 0x9e,
     0xd4, 0xac, 0x01, 0x83, 0xc4, 0x9c, 0x14, 0x97
 };
 
-// Input data will be set to 00, 01, 02, ....., fe, ff, 00, 01, ...
-// First iv is set to a8, a9, ...
+/*
+ * Input data will be set to 00, 01, 02, ....., fe, ff, 00, 01, ...
+ * First iv is set to a8, a9, ...
+ * Using key 'This.Is.A.Key' with len 13
+ * The salt picked was:
+ * 0xf2 0x61 0x01 0x50 0x73 0x54 0x9a 0xd1
+ *
+ * Output produced is: iv=12, iv=a8
+ *
+ * 0x03 0x54 0x08 0xa4 0x52 0xb8 0xde 0xc4
+ * 0x96 0x30 0x13 0xa8 0x5e 0xc4 0x32 0xca
+ * 0xc3 0xb3 0x52 0x60 0x21 0x4a 0x09 0xa5
+ * 0x0b 0xd9 0xd5 0x5a 0xab 0xcd 0xec 0xa6 ....
+ * [snip]
+ *
+ * solaris MAC output:
+ * 0xd2 0x98 0xa2 0x08 0x8d 0x72 0x7a 0x29
+ * 0x96 0x50 0x7f 0xb6 0xf5 0x98 0xab 0xb2
+ *
+ * OSX authtag
+ * 0xfb 0xcc 0xf7 0xd7 0xee 0xca 0x7a 0x65
+ * 0x87 0x73 0x50 0xb7 0x37 0x76 0xef 0x6e
+ */
 
-int cipher_test()
+int cipher_test_ccm()
 {
     crypto_data_t plaintext, ciphertext;
     crypto_mechanism_t *mech;
@@ -862,6 +881,111 @@ int cipher_test()
         snprintf((char *)out, sizeof(out), "%s 0x%02x", out, iv[i]);
     }
     printf("%s\n", out);
+
+
+    if (dstuio)     uio_free(dstuio);
+
+    IODelay(500);
+    printf("*** Decrypt test\n");
+
+
+
+
+    // Clear all outputs (cipherdata is input)
+    memset(plaindata, 0, 512);
+    memset(iv, 0, ivsize);
+    memset(&mech_holder, 0, sizeof(mech_holder));
+    mech = &mech_holder;
+
+    size = 512;
+
+    printf("init complete\n");
+
+    // Call cipher
+    plaintext.cd_format = CRYPTO_DATA_RAW;
+    plaintext.cd_offset = 0;
+    plaintext.cd_length = size;
+    plaintext.cd_miscdata = NULL;
+    plaintext.cd_raw.iov_base = (void *)plaindata;
+    plaintext.cd_raw.iov_len = size;
+
+    maclen = 16;
+
+    dstiov[0].iov_base = (void *)cipherdata;
+    dstiov[0].iov_len = size;
+    dstiov[1].iov_base = (void *)mac;
+    dstiov[1].iov_len = maclen;
+
+    dstuio = uio_create( 2,       /* max number of iovecs */
+                         0,            /* current offset */
+                         UIO_SYSSPACE,     /* type of address space */
+                         UIO_READ);    /* read or write flag */
+    for (i = 0; i < 2; i++)
+        uio_addiov(dstuio, (user_addr_t)dstiov[i].iov_base, dstiov[i].iov_len);
+
+    //dstuio.uio_iov = dstiov;
+    //dstuio.uio_iovcnt = 2;
+    ciphertext.cd_length = size + maclen;
+
+    //srcuio.uio_segflg = dstuio.uio_segflg = UIO_SYSSPACE;
+
+    ciphertext.cd_format = CRYPTO_DATA_UIO;
+    ciphertext.cd_offset = 0;
+    ciphertext.cd_uio = dstuio;
+    ciphertext.cd_miscdata = NULL;
+
+    printf("loaded CD structs\n");
+
+    //mech = zio_crypt_setup_mech_gen_iv(crypt, type, dedup, key, txg,
+    //                                   bookmark, src, plaintext.cd_length, iv);
+
+    //mech = zio_crypt_setup_mech_common(crypt, type, datalen);
+    mech->cm_type = crypto_mech2id(SUN_CKM_AES_CCM);
+
+    //ccmp = kmem_alloc(sizeof (CK_AES_CCM_PARAMS), KM_SLEEP);
+    // ccmp = calloc(sizeof (CK_AES_CCM_PARAMS), 1);
+    ccmp->ulNonceSize = ivsize;
+    ccmp->ulAuthDataSize = 0;
+    ccmp->authData = NULL;
+    ccmp->ulDataSize = size;
+    ccmp->ulMACSize = 16;
+    mech->cm_param = (char *)ccmp;
+    mech->cm_param_len = sizeof (CK_AES_CCM_PARAMS);
+
+
+    //zio_crypt_gen_data_iv(crypt, type, dedup, data, datalen,
+    //                     key, txg, bookmark, iv);
+    printf("Setting iv to: \n");
+    for (i = 0, d=0xa8; i < ivsize; i++,d++) {
+        iv[i] = d;
+        printf("0x%02x ", iv[i]);
+    }
+    printf("\n");
+
+    ccmp->nonce = (uchar_t *)iv;
+
+
+    err = crypto_decrypt(mech, &ciphertext, &ckey, NULL,
+                         &plaintext, NULL);
+
+    printf("crypt_decrypt returns 0x%02X\n", err);
+    *out = 0;
+
+    for (i = 0; i < size; i++) {
+
+        snprintf((char*)out, sizeof(out), "%s 0x%02x", out, plaindata[i]);
+        if ((i % 8)==7) {
+            printf("%s\n", out);
+            *out = 0;
+        }
+    }
+    printf("%s\nMAC output:", out);
+    *out = 0;
+    for (i = 0; i < 16; i++) {
+        snprintf((char *)out, sizeof(out), "%s 0x%02x", out, mac[i]);
+    }
+    printf("%s\n", out);
+
 
 
  out:
