@@ -44,6 +44,7 @@
 #include <vm/vm_map.h>
 #include <mach/host_info.h>
 #include <libkern/OSMalloc.h>
+#include <sys/sysctl.h>
 
 #ifdef _KERNEL
 
@@ -62,71 +63,64 @@ vmem_t *zio_alloc_arena = NULL; /* arena for allocating zio memory */
 
 static uint64_t total_in_use = 0;
 
-void
-strfree(char *str)
-{
-    kmem_free(str, strlen(str) + 1);
-}
+extern int              vm_pool_low(void);
+
+extern vm_map_t kernel_map;
+
+#undef kmem_alloc
+#undef kmem_free
+extern kern_return_t    kmem_alloc(
+                                   vm_map_t        map,
+                                   vm_offset_t     *addrp,
+                                   vm_size_t       size);
+
+extern void             kmem_free(
+                                  vm_map_t        map,
+                                  vm_offset_t     addr,
+                                  vm_size_t       size);
+
+extern unsigned int vm_page_free_count;
+extern unsigned int vm_page_speculative_count;
+
+void spl_register_oids(void);
+void spl_unregister_oids(void);
+SYSCTL_DECL(_spl);
+SYSCTL_NODE( , OID_AUTO, spl, CTLFLAG_RW, 0, "Solaris Porting Layer");
+struct sysctl_oid_list sysctl__spl_children;
+
+SYSCTL_QUAD(_spl, OID_AUTO, kmem_bytes_total, CTLFLAG_RD,
+           &total_in_use, "kmem.total bytes allocated");
+
 
 
 
 void *
 zfs_kmem_alloc(size_t size, int kmflags)
 {
-	void *p;
-    uint64_t times = 0;
-#ifdef KMEM_DEBUG
-	struct kmem_item *i;
+	void *p = NULL;
+    kern_return_t kr;
 
-	size += sizeof(struct kmem_item);
-#endif
+    if (!size) return NULL; // FIXME
 
-    do {
-
-        times++;
-
-#if 0
-    if (kmflags & KM_NOSLEEP)
-        p = OSMalloc_noblock(size, zfs_kmem_alloc_tag);
-    else
-#endif
-        p = OSMalloc(size, zfs_kmem_alloc_tag);
-
-#ifndef _KERNEL
-	if (kmflags & KM_SLEEP)
-		assert(p != NULL);
-#endif
-#ifdef KMEM_DEBUG
-	if (p != NULL) {
-		i = p;
-		p = (u_char *)p + sizeof(struct kmem_item);
-		stack_save(&i->stack);
-		mtx_lock(&kmem_items_mtx);
-		LIST_INSERT_HEAD(&kmem_items, i, next);
-		mtx_unlock(&kmem_items_mtx);
-	}
-#endif
+    kr = kmem_alloc(kernel_map,
+                    (vm_offset_t *)&p,
+                    size);
 
     if (p && (kmflags & KM_ZERO))
         bzero(p, size);
 
-    } while(!p);
-
-    if (times > 1)
-        printf("[spl] kmem_alloc(%lu) took %d retries\n",
-               size, times);
-
     if (!p) {
         printf("[spl] kmem_alloc(%lu) failed: \n",size);
-    } else atomic_add_64(&total_in_use, size);
-
+    } else {
+        atomic_add_64(&total_in_use, size);
+    }
 	return (p);
 }
 
 void
 zfs_kmem_free(void *buf, size_t size)
 {
-    OSFree(buf, size, zfs_kmem_alloc_tag);
+    kmem_free(kernel_map, (vm_offset_t)buf, size);
     atomic_sub_64(&total_in_use, size);
 }
 
@@ -135,16 +129,17 @@ void spl_total_in_use(void)
     printf("SPL: memory in use %llu\n", total_in_use);
 }
 
-static uint64_t kmem_size_val;
-
-
 void
-spl_kmem_init(void)
+spl_kmem_init(uint64_t total_memory)
 {
-    //OSMT_PAGEABLE
-    zfs_kmem_alloc_tag = OSMalloc_Tagalloc("ZFS general purpose",
+
+    zfs_kmem_alloc_tag = OSMalloc_Tagalloc("spl.kmem.large",
                                            //OSMT_PAGEABLE);
                                            OSMT_DEFAULT);
+
+    printf("SPL: Total memory %llu\n", total_memory);
+
+    spl_register_oids();
 
 }
 
@@ -152,19 +147,9 @@ void
 spl_kmem_fini(void)
 {
     OSMalloc_Tagfree(zfs_kmem_alloc_tag);
+    spl_unregister_oids();
 }
 
-
-#if 0
-static void
-kmem_size_init(void *unused __unused)
-{
-    zfs_kmem_alloc_tag = OSMalloc_Tagalloc("ZFS general purpose",
-                                           OSMT_DEFAULT);
-	kmem_size_val = max_mem;
-}
-SYSINIT(kmem_size_init, SI_SUB_KMEM, SI_ORDER_ANY, kmem_size_init, NULL);
-#endif
 
 uint64_t
 kmem_size(void)
@@ -176,8 +161,18 @@ kmem_size(void)
 uint64_t
 kmem_used(void)
 {
-    return 0x1234567890;
-	//return (kmem_map->size);
+    return total_in_use;
+}
+
+uint64_t
+kmem_avail(void)
+{
+    return (vm_page_free_count + vm_page_speculative_count) * PAGE_SIZE;
+}
+
+int spl_vm_pool_low(void)
+{
+    return vm_pool_low();
 }
 
 static int
@@ -205,7 +200,7 @@ kmem_cache_create(char *name, size_t bufsize, size_t align,
 
 	ASSERT(vmp == NULL);
 
-	cache = kmem_alloc(sizeof(*cache), KM_SLEEP);
+	cache = zfs_kmem_alloc(sizeof(*cache), KM_SLEEP);
 	strlcpy(cache->kc_name, name, sizeof(cache->kc_name));
 	cache->kc_constructor = constructor;
 	cache->kc_destructor = destructor;
@@ -219,7 +214,7 @@ kmem_cache_create(char *name, size_t bufsize, size_t align,
 void
 kmem_cache_destroy(kmem_cache_t *cache)
 {
-	kmem_free(cache, sizeof(*cache));
+	zfs_kmem_free(cache, sizeof(*cache));
 }
 
 void *
@@ -227,7 +222,7 @@ kmem_cache_alloc(kmem_cache_t *cache, int flags)
 {
 	void *p;
 
-	p = kmem_alloc(cache->kc_size, flags);
+	p = zfs_kmem_alloc(cache->kc_size, flags);
 	if (p != NULL && cache->kc_constructor != NULL)
 		kmem_std_constructor(p, cache->kc_size, cache, flags);
 	return (p);
@@ -238,7 +233,7 @@ kmem_cache_free(kmem_cache_t *cache, void *buf)
 {
 	if (cache->kc_destructor != NULL)
 		kmem_std_destructor(buf, cache->kc_size, cache);
-	kmem_free(buf, cache->kc_size);
+	zfs_kmem_free(buf, cache->kc_size);
 }
 
 
@@ -282,6 +277,12 @@ zfs_kmem_zalloc(size_t size, int kmflags)
         bzero(buf, size);
     }
     return(buf);
+}
+
+void
+strfree(char *str)
+{
+    OSFree(str, strlen(str) + 1, zfs_kmem_alloc_tag);
 }
 
 
@@ -334,3 +335,16 @@ kmem_asprintf(const char *fmt, ...)
     return ptr;
 }
 
+
+
+void spl_register_oids(void)
+{
+    sysctl_register_oid(&sysctl__spl);
+    sysctl_register_oid(&sysctl__spl_kmem_bytes_total);
+}
+
+void spl_unregister_oids(void)
+{
+    sysctl_unregister_oid(&sysctl__spl);
+    sysctl_unregister_oid(&sysctl__spl_kmem_bytes_total);
+}

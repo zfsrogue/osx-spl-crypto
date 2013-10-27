@@ -42,7 +42,7 @@
 
 #include <kern/processor.h>
 
-struct utsname utsname = { 0 };
+struct utsname utsname = { { 0 } };
 
 //extern struct machine_info      machine_info;
 
@@ -58,6 +58,9 @@ static uint64_t  total_memory = 0;
  */
 #define	_task_user_
 #include <IOKit/IOLib.h>
+
+
+extern char hostname[MAXHOSTNAMELEN];
 
 /*
  * Solaris delay is in ticks (hz) and Darwin uses microsecs
@@ -77,19 +80,35 @@ uint32_t zone_get_hostid(void *zone)
 
     len = sizeof(myhostid);
     sysctlbyname("kern.hostid", &myhostid, &len, NULL, 0);
-
     return myhostid;
 }
-
 
 kern_return_t spl_start (kmod_info_t * ki, void * d)
 {
     //max_ncpus = processor_avail_count;
     int ncpus;
     size_t len = sizeof(ncpus);
+
     sysctlbyname("hw.logicalcpu_max", &max_ncpus, &len, NULL, 0);
     len = sizeof(total_memory);
     sysctlbyname("hw.memsize", &total_memory, &len, NULL, 0);
+
+    /*
+     * OSX kernel can only use quarter the memory available. Unless
+     * boot-args zsize is used to bring it to 50%.
+     */
+    vm_size_t zsizearg;
+    if (PE_parse_boot_argn("zsize", &zsizearg, sizeof (zsizearg))) {
+        uint64_t mem = zsizearg * 1024ULL * 1024ULL;
+
+        // OSX does not let you set zsize over 50%
+        if (mem > (total_memory>>1))
+            mem = total_memory>>1;
+
+    } else {
+        //printf("SPL: boot-args zsize not used, restricted to 25%% memory\n");
+        //total_memory >>= 2;
+    }
 
     physmem = total_memory / PAGE_SIZE;
 
@@ -110,7 +129,9 @@ kern_return_t spl_start (kmod_info_t * ki, void * d)
     len = sizeof(utsname.version);
     sysctlbyname("kern.version", &utsname.version, &len, NULL, 0);
 
-    spl_kmem_init();
+    strlcpy(utsname.nodename, hostname, sizeof(utsname.nodename));
+
+    spl_kmem_init(total_memory);
     spl_mutex_subsystem_init();
     spl_rwlock_init();
     spl_taskq_init();
