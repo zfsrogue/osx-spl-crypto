@@ -218,8 +218,8 @@ int crypto_mac(crypto_mechanism_t *mech, crypto_data_t *data,
 
     ret = CRYPTO_SUCCESS;
 
-#ifdef ZFS_CRYPTO_VERBOSE
     printf("spl-crypto: mac returning %d\n", ret);
+#ifdef ZFS_CRYPTO_VERBOSE
 #endif
     return ret;
 }

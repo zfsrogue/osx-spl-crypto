@@ -917,7 +917,7 @@ int cipher_test_gcm()
     unsigned char *cipherdata = NULL;
     unsigned char *mac = NULL;
     unsigned char *iv  = NULL;
-    CK_AES_GCM_PARAMS *ccmp;
+    CK_AES_GCM_PARAMS *ccmp = NULL;
     unsigned char out[180];
     int ivsize = 12;
 
