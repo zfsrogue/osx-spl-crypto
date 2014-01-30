@@ -81,4 +81,7 @@ extern hrtime_t gethrtime(void);
 extern void gethrestime(struct timespec *);
 extern time_t gethrestime_sec(void);
 
+#define     MSEC2NSEC(m)    ((hrtime_t)(m) * (NANOSEC / MILLISEC))
+#define  NSEC2MSEC(n)    ((n) / (NANOSEC / MILLISEC))
+
 #endif  /* _SPL_TIME_H */

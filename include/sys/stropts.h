@@ -32,6 +32,9 @@
 #include <sys/types.h>
 #include <string.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define isprint(c)      ((c) >= ' ' && (c) <= '~')
 
@@ -133,4 +136,9 @@ kmemchr(const void *s, int c, size_t n)
     }
     return (NULL);
 }
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* SPL_STROPTS_H */
