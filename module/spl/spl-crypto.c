@@ -460,7 +460,6 @@ crypto_mech_type_t crypto_mech2id(crypto_mech_name_t name)
     int i;
 
     if (!name || !*name) {
-        printf("Invalid crypto name\n");
         return CRYPTO_MECH_INVALID;
     }
 
