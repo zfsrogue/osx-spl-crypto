@@ -389,17 +389,12 @@ void dnlc_remove(struct vnode *vp, char *name)
  */
 void dnlc_update(struct vnode *vp, char *name, struct vnode *tp)
 {
+#if 0
     // If tp is NULL, it is a negative-cache entry
     struct componentname cn;
 
     // OSX panics if you give empty(non-NULL) name
     if (!name || !*name || !strlen(name)) return;
-
-    /*
-     * The addition of negative cache entries has been removed as they
-     * appear to break on OSX.
-     */
-    if (!tp) return;// No negative cache entries for now.
 
 	bzero(&cn, sizeof (cn));
 	cn.cn_nameiop = CREATE;
@@ -408,6 +403,7 @@ void dnlc_update(struct vnode *vp, char *name, struct vnode *tp)
 	cn.cn_namelen = strlen(name);
 
     cache_enter(vp, tp==DNLC_NO_VNODE?NULL:tp, &cn);
+#endif
     return;
 }
 
