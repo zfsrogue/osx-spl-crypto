@@ -31,6 +31,7 @@
 #include <sys/kmem.h>
 #include <sys/tsd.h>
 #include <spl-debug.h>
+#include <sys/vnode.h>
 
 uint32_t zfs_threads = 0;
 
@@ -65,4 +66,11 @@ void spl_thread_exit(void)
         OSDecrementAtomic((SInt32 *)&zfs_threads);
 
         (void) thread_terminate(current_thread());
+}
+
+void spl_rele_async(void *arg)
+{
+    struct vnode *vp = (struct vnode *)arg;
+    if (vp) vnode_put(vp);
+    thread_exit();
 }

@@ -57,7 +57,8 @@ spl_SOURCES = 	\
 	spl-thread.c \
 	spl-time.c \
 	spl-vnode.c \
-	spl-xdr.c
+	spl-xdr.c \
+	spl-bmalloc.c 
 
 spl_CPPFLAGS=$(CFLAGS_KMOD)
 spl_LDFLAGS=$(LINKFLAGS_KMOD)

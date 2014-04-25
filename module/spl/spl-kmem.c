@@ -26,163 +26,87 @@
  *
  */
 
-
-#include <sys/kmem.h>
 #include <spl-debug.h>
-
-
 #include <sys/cdefs.h>
-
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/systm.h>
-#include <sys/malloc.h>
-#include <sys/kmem.h>
-#include <sys/mutex.h>
-
-#include <vm/vm_kern.h>
-#include <vm/vm_map.h>
-#include <mach/host_info.h>
-#include <libkern/OSMalloc.h>
 #include <sys/sysctl.h>
+#include "spl-bmalloc.h"
 
-#ifdef _KERNEL
-
-#else
-#define	malloc(size, type, flags)	malloc(size)
-#define	free(addr, type)		free(addr)
-#endif
-
-extern uint64_t    max_mem;
-uint64_t    physmem = 0;
-
-//extern uint64_t    max_mem;
-static OSMallocTag zfs_kmem_alloc_tag = NULL;
-
-vmem_t *zio_alloc_arena = NULL; /* arena for allocating zio memory */
-
+uint64_t physmem = 0;
 static uint64_t total_in_use = 0;
 
-extern int              vm_pool_low(void);
-
-extern vm_map_t kernel_map;
-
-#undef kmem_alloc
-#undef kmem_free
-extern kern_return_t    kmem_alloc(
-                                   vm_map_t        map,
-                                   vm_offset_t     *addrp,
-                                   vm_size_t       size);
-
-extern void             kmem_free(
-                                  vm_map_t        map,
-                                  vm_offset_t     addr,
-                                  vm_size_t       size);
+extern int vm_pool_low(void);
 
 extern unsigned int vm_page_free_count;
 extern unsigned int vm_page_speculative_count;
 
 void spl_register_oids(void);
 void spl_unregister_oids(void);
+
 SYSCTL_DECL(_spl);
 SYSCTL_NODE( , OID_AUTO, spl, CTLFLAG_RW, 0, "Solaris Porting Layer");
 struct sysctl_oid_list sysctl__spl_children;
 
 SYSCTL_QUAD(_spl, OID_AUTO, kmem_bytes_total, CTLFLAG_RD,
-           &total_in_use, "kmem.total bytes allocated");
+            &total_in_use, "kmem.total bytes allocated");
 
 extern uint32_t zfs_threads;
 SYSCTL_INT(_spl, OID_AUTO, num_threads,
            CTLFLAG_RD, &zfs_threads, 0,
            "Num threads");
 
-
-//#define SPL_HYBRID_ALLOCATOR
-
-
 void *
 zfs_kmem_alloc(size_t size, int kmflags)
 {
-	void *p = NULL;
-    kern_return_t kr;
+    ASSERT(size);
 
-    if (!size) return NULL; // FIXME
+    void *p = bmalloc(size);
 
-#ifdef SPL_HYBRID_ALLOCATOR
-    if (size < PAGE_SIZE)
-        p = OSMalloc(size, zfs_kmem_alloc_tag);
-    else
-        kr = kmem_alloc(kernel_map,
-                        (vm_offset_t *)&p,
-                        size);
-
-#else
-    p = OSMalloc(size, zfs_kmem_alloc_tag);
-#endif
-
-
-
-
-
-    if (p && (kmflags & KM_ZERO))
-        bzero(p, size);
-
-    if (!p) {
-        printf("[spl] kmem_alloc(%lu) failed: \n",size);
-    } else {
+    if (p) {
+        if (kmflags & KM_ZERO) {
+            bzero(p, size);
+        }
         atomic_add_64(&total_in_use, size);
+    } else {
+        printf("[spl] kmem_alloc(%lu) failed: \n", size);
     }
-	return (p);
+
+    return (p);
+}
+
+void *
+zfs_kmem_zalloc(size_t size, int kmflags)
+{
+    return zfs_kmem_alloc(size, kmflags | KM_ZERO);
 }
 
 void
 zfs_kmem_free(void *buf, size_t size)
 {
-    if (!buf || !size) return;
+    ASSERT(buf && size);
 
-#ifdef SPL_HYBRID_ALLOCATOR
-    if (size < PAGE_SIZE)
-        OSFree(buf, size, zfs_kmem_alloc_tag);
-    else
-        kmem_free(kernel_map, (vm_offset_t)buf, size);
-#else
-    OSFree(buf, size, zfs_kmem_alloc_tag);
-#endif
-
+    bfree(buf, size);
     atomic_sub_64(&total_in_use, size);
-}
-
-void spl_total_in_use(void)
-{
-    printf("SPL: memory in use %llu\n", total_in_use);
 }
 
 void
 spl_kmem_init(uint64_t total_memory)
 {
-
-    zfs_kmem_alloc_tag = OSMalloc_Tagalloc("spl.kmem.large",
-                                           //OSMT_PAGEABLE);
-                                           OSMT_DEFAULT);
-
     printf("SPL: Total memory %llu\n", total_memory);
-
     spl_register_oids();
-
 }
 
 void
 spl_kmem_fini(void)
 {
-    OSMalloc_Tagfree(zfs_kmem_alloc_tag);
     spl_unregister_oids();
 }
-
 
 uint64_t
 kmem_size(void)
 {
-
 	return (physmem * PAGE_SIZE);
 }
 
@@ -200,7 +124,24 @@ kmem_avail(void)
 
 int spl_vm_pool_low(void)
 {
-    return vm_pool_low();
+    static int tick_counter = 0;
+
+    int r = vm_pool_low();
+
+    if(r) {
+        bmalloc_release_memory();
+    }
+
+    // FIXME - this should be in its own thread
+    // that calls garbage collect at least every
+    // 5 seconds.
+    tick_counter++;
+    if(tick_counter % 5 == 0) {
+        tick_counter = 0;
+        bmalloc_garbage_collect();
+    }
+
+    return r;
 }
 
 static int
@@ -221,8 +162,8 @@ kmem_std_destructor(void *mem, int size __unused, void *private)
 
 kmem_cache_t *
 kmem_cache_create(char *name, size_t bufsize, size_t align,
-    int (*constructor)(void *, void *, int), void (*destructor)(void *, void *),
-    void (*reclaim)(void *), void *private, vmem_t *vmp, int cflags)
+                  int (*constructor)(void *, void *, int), void (*destructor)(void *, void *),
+                  void (*reclaim)(void *), void *private, vmem_t *vmp, int cflags)
 {
 	kmem_cache_t *cache;
 
@@ -274,13 +215,9 @@ kmem_cache_free(kmem_cache_t *cache, void *buf)
  * effort and we do not want to thrash creating and destroying slabs.
  */
 void
-kmem_cache_reap_now(kmem_cache_t *skc)//, int count)
+kmem_cache_reap_now(kmem_cache_t *skc)
 {
 }
-
-
-
-
 
 int
 kmem_debugging(void)
@@ -294,25 +231,11 @@ calloc(size_t n, size_t s)
 	return (kmem_zalloc(n * s, KM_NOSLEEP));
 }
 
-void *
-zfs_kmem_zalloc(size_t size, int kmflags)
-{
-    void *buf;
-
-    buf = zfs_kmem_alloc(size, kmflags);
-
-    if (buf != NULL) {
-        bzero(buf, size);
-    }
-    return(buf);
-}
-
 void
 strfree(char *str)
 {
-    OSFree(str, strlen(str) + 1, zfs_kmem_alloc_tag);
+    bfree(str, strlen(str) + 1);
 }
-
 
 char *kvasprintf(const char *fmt, va_list ap)
 {
@@ -324,7 +247,7 @@ char *kvasprintf(const char *fmt, va_list ap)
     len = vsnprintf(NULL, 0, fmt, aq);
     va_end(aq);
 
-    p = OSMalloc(len+1, zfs_kmem_alloc_tag);
+    p = bmalloc(len+1);
     if (!p)
         return NULL;
 
@@ -362,8 +285,6 @@ kmem_asprintf(const char *fmt, ...)
 
     return ptr;
 }
-
-
 
 void spl_register_oids(void)
 {

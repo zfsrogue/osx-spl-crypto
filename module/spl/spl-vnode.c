@@ -106,8 +106,14 @@ extern errno_t vnode_remove(const char *, int, enum vtype, vfs_context_t);
 errno_t
 vnode_remove(const char *name, int flag, enum vtype type, vfs_context_t vctx)
 {
+    /*
+     * Now that zed ZFS Event Daemon can handle the rename of zpool.cache
+     * we will silence this limitation, and look in zed.d/config.sync.sh
+     */
+    /*
     IOLog("vnode_remove: \"%s\"\n", name);
     IOLog("zfs: vnode_remove not yet supported\n");
+    */
     return (EPERM);
 }
 
@@ -213,7 +219,7 @@ int VOP_GETATTR(struct vnode *vp, vattr_t *vap, int flags, void *x3, void *x4)
     return error;
 }
 
-
+#if 0
 errno_t VNOP_LOOKUP(struct vnode *, struct vnode **, struct componentname *, vfs_context_t);
 
 errno_t VOP_LOOKUP(struct vnode *vp, struct vnode **vpp, struct componentname *cn, vfs_context_t ct)
@@ -250,6 +256,8 @@ errno_t VOP_SYMLINK (struct vnode *vp, struct vnode **vpp,
 {
     return VNOP_SYMLINK(vp, vpp, cn, attr, name, ct);
 }
+#endif
+
 
 #undef VFS_ROOT
 
@@ -373,6 +381,7 @@ dnlc_lookup(struct vnode *dvp, char *name)
 
 int dnlc_purge_vfsp(struct mount *mp, int flags)
 {
+    cache_purgevfs(mp);
     return 0;
 }
 
@@ -389,6 +398,7 @@ void dnlc_remove(struct vnode *vp, char *name)
  */
 void dnlc_update(struct vnode *vp, char *name, struct vnode *tp)
 {
+
 #if 0
     // If tp is NULL, it is a negative-cache entry
     struct componentname cn;
