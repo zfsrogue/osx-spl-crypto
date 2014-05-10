@@ -52,6 +52,7 @@ spl_SOURCES = 	\
 	spl-mutex.c \
 	spl-osx.c \
 	spl-proc.c \
+	spl-processor.c \
 	spl-rwlock.c \
 	spl-taskq.c \
 	spl-thread.c \
