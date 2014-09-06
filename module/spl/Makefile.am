@@ -1,3 +1,5 @@
+include $(top_srcdir)/config/Rules.am
+
 INFO_PLIST = Info.plist
 PLIST_STRING = InfoPlist.strings
 
@@ -50,6 +52,7 @@ spl_SOURCES = 	\
 	spl-list.c \
 	spl-mutex.c \
 	spl-osx.c \
+	spl-policy.c \
 	spl-proc.c \
 	spl-processor.c \
 	spl-rwlock.c \

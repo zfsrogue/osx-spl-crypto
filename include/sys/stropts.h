@@ -44,6 +44,34 @@ extern "C" {
  * High order bit is 31 (or 63 in _LP64 kernel).
  */
 static inline int
+highbit64(unsigned long long i)
+{
+    register int h = 1;
+
+    if (i == 0)
+        return (0);
+    if (i & 0xffffffff00000000ull) {
+        h += 32; i >>= 32;
+    }
+    if (i & 0xffff0000) {
+        h += 16; i >>= 16;
+    }
+    if (i & 0xff00) {
+        h += 8; i >>= 8;
+    }
+    if (i & 0xf0) {
+        h += 4; i >>= 4;
+    }
+    if (i & 0xc) {
+        h += 2; i >>= 2;
+    }
+    if (i & 0x2) {
+        h += 1;
+    }
+    return (h);
+}
+
+static inline int
 highbit(unsigned long long i)
 {
     register int h = 1;
