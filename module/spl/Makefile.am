@@ -39,6 +39,7 @@ spl_SOURCES = 	\
 	rijndael-alg-fst.c \
 	sha2.c \
 	spl-atomic.c \
+	spl-avl.c \
 	spl-condvar.c \
 	spl-cred.c \
 	spl-crypto.c \
@@ -60,6 +61,7 @@ spl_SOURCES = 	\
 	spl-thread.c \
 	spl-time.c \
 	spl-tsd.c \
+        spl-vmem.c \
 	spl-vnode.c \
 	spl-xdr.c \
 	spl-bmalloc.c
