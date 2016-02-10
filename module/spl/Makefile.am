@@ -4,6 +4,7 @@ INFO_PLIST = Info.plist
 PLIST_STRING = InfoPlist.strings
 
 SUBDIRS = KernelExports
+AUTOMAKE_OPTIONS = subdir-objects
 
 CFLAGS_KMOD = \
 	${AM_CFLAGS} \
@@ -38,6 +39,11 @@ spl_SOURCES = 	\
 	rijndael-api.c \
 	rijndael-alg-fst.c \
 	sha2.c \
+	crypto/edonr/edonr.c \
+	crypto/skein/skein.c \
+	crypto/skein/skein_iv.c \
+	crypto/skein/skein_block.c \
+	crypto/sha2/sha2.c \
 	spl-atomic.c \
 	spl-avl.c \
 	spl-condvar.c \
@@ -64,7 +70,7 @@ spl_SOURCES = 	\
 	spl-tsd.c \
     spl-vmem.c \
 	spl-vnode.c \
-	spl-xdr.c 
+	spl-xdr.c
 
 spl_CPPFLAGS=$(CFLAGS_KMOD)
 spl_LDFLAGS=$(LINKFLAGS_KMOD)
@@ -80,14 +86,14 @@ spl.kext$(EXEEXT): spl $(PLIST_STRING) $(INFO_PLIST)
 	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(SPL_META_VERSION)" spl.kext/Contents/Info.plist
 	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(SPL_META_VERSION)" spl.kext/Contents/Info.plist
 	/usr/libexec/PlistBuddy -c "Delete :OSBundleLibraries:net.lundman.kernel.dependencies" spl.kext/Contents/Info.plist
-	/usr/libexec/PlistBuddy -c "Add :OSBundleLibraries:net.lundman.kernel.dependencies.$(SPL_META_VERSION) string 12.5.0" spl.kext/Contents/Info.plist
+	/usr/libexec/PlistBuddy -c "Add :OSBundleLibraries:net.lundman.kernel.dependencies.$(SPL_KERNEL_DEPENDENCIES) string 12.5.0" spl.kext/Contents/Info.plist
 	@cp -f $(PLIST_STRING) spl.kext/Contents/Resources/English.lproj/
 	@cp -f spl spl.kext/Contents/MacOS/
 	@mkdir -p spl.kext/Contents/PlugIns/KernelExports.kext/
 	@cd KernelExports && $(MAKE)
 	@cp -f KernelExports/KernelExports spl.kext/Contents/PlugIns/KernelExports.kext/
 	cp -f KernelExports/Info.plist spl.kext/Contents/PlugIns/KernelExports.kext/
-	/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier net.lundman.kernel.dependencies.$(SPL_META_VERSION)" spl.kext/Contents/PlugIns/KernelExports.kext/Info.plist
+	/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier net.lundman.kernel.dependencies.$(SPL_KERNEL_DEPENDENCIES)" spl.kext/Contents/PlugIns/KernelExports.kext/Info.plist
 	cp -f KernelExports/version.plist spl.kext/Contents/PlugIns/KernelExports.kext/
 	mkdir -p KernelExports.kext
 	cp -f spl.kext/Contents/PlugIns/KernelExports.kext/KernelExports KernelExports.kext/
@@ -98,14 +104,14 @@ install-exec-local: spl.kext
 	rm -rf $(KERNEL_MODDIR)
 	mkdir -p $(KERNEL_MODDIR)
 	rsync -r spl.kext/ $(KERNEL_MODDIR)
-	chown -R root:wheel $(KERNEL_MODDIR)
+	chown -R root:wheel $(KERNEL_MODDIR) || echo "Unable to chown root:wheel $(KERNEL_MODDIR)"
 	@echo
 	@echo "To load module: kextload -v $(KERNEL_MODDIR)"
 	@echo "To uninstall module: rm -rf $(KERNEL_MODDIR)"
 	@echo
 
 uninstall-am:
-	rm -rf /System/Library/Extensions/spl.kext
+	rm -rf $(KERNEL_MODDIR)
 
 clean:
 	rm -rf spl.kext/

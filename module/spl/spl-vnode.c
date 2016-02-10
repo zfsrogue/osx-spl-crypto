@@ -221,14 +221,15 @@ int VOP_GETATTR(struct vnode *vp, vattr_t *vap, int flags, void *x3, void *x4)
     return error;
 }
 
-#if 0
+#if 1
 errno_t VNOP_LOOKUP(struct vnode *, struct vnode **, struct componentname *, vfs_context_t);
 
 errno_t VOP_LOOKUP(struct vnode *vp, struct vnode **vpp, struct componentname *cn, vfs_context_t ct)
 {
     return VNOP_LOOKUP(vp,vpp,cn,ct);
 }
-
+#endif
+#if 0
 extern errno_t VNOP_MKDIR   (struct vnode *, struct vnode **,
                              struct componentname *, struct vnode_attr *,
                              vfs_context_t);
@@ -419,7 +420,9 @@ void *getf(int fd)
 
 	/* Also grab vnode, so we can fish out the minor, for onexit */
 	if (!file_vnode_withvid(fd, &vp, &vid)) {
-		sfp->f_file = minor(vnode_specrdev(vp));
+		if (vnode_vtype(vp) != VDIR) {
+			sfp->f_file = minor(vnode_specrdev(vp));
+		}
 		file_drop(fd);
 	}
 
@@ -433,6 +436,18 @@ void *getf(int fd)
     return sfp;
 }
 
+struct vnode *getf_vnode(void *fp)
+{
+	struct spl_fileproc *sfp = (struct spl_fileproc *) fp;
+	struct vnode *vp = NULL;
+	uint32_t vid;
+
+	if (!file_vnode_withvid(sfp->f_fd, &vp, &vid)) {
+		file_drop(sfp->f_fd);
+	}
+
+	return vp;
+}
 
 void releasef(int fd)
 {
@@ -537,4 +552,30 @@ void vn_rele_async(struct vnode *vp, void *taskq)
 vfs_context_t spl_vfs_context_kernel(void)
 {
 	return vfs_context_kernel();
+}
+
+#undef build_path
+extern int build_path(struct vnode *vp, char *buff, int buflen, int *outlen,
+					  int flags, vfs_context_t ctx);
+
+int spl_build_path(struct vnode *vp, char *buff, int buflen, int *outlen,
+				   int flags, vfs_context_t ctx)
+{
+	return build_path(vp, buff, buflen, outlen, flags, ctx);
+}
+
+/*
+ * vnode_notify was moved from KERNEL_PRIVATE to KERNEL in 10.11, but to be
+ * backward compatible, we keep the wrapper for now.
+ */
+extern int vnode_notify(struct vnode *, uint32_t, struct vnode_attr*);
+int spl_vnode_notify(struct vnode *vp, uint32_t type, struct vnode_attr *vap)
+{
+	return vnode_notify(vp, type, vap);
+}
+
+extern int	vfs_get_notify_attributes(struct vnode_attr *vap);
+int	spl_vfs_get_notify_attributes(struct vnode_attr *vap)
+{
+	return vfs_get_notify_attributes(vap);
 }

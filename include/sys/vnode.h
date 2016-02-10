@@ -60,7 +60,12 @@ typedef int vcexcl_t;
 enum vcexcl	{ NONEXCL, EXCL };
 
 
-#define ATTR_XVATTR	(1 << 31)
+/*
+ * OSX uses separate vnop getxattr and setxattr to deal with XATTRs, so
+ * we never get vop&XVATTR set from VFS. All internal checks for it in
+ * ZFS is not required.
+ */
+#define ATTR_XVATTR	0
 #define AT_XVATTR	ATTR_XVATTR
 
 #define B_INVAL		0x01
@@ -236,6 +241,9 @@ extern void          dnlc_remove     ( struct vnode *vp, char *name );
 extern void          dnlc_update     ( struct vnode *vp, char *name,
                                        struct vnode *tp);
 
+#define build_path(A, B, C, D, E, F) spl_build_path(A,B,C,D,E,F)
+extern int spl_build_path(struct vnode *vp, char *buff, int buflen, int *outlen,
+						  int flags, vfs_context_t ctx);
 
 
 
@@ -309,6 +317,7 @@ int spl_vn_rdwr(
 
 vfs_context_t vfs_context_kernel(void);
 vfs_context_t spl_vfs_context_kernel(void);
-
+extern int spl_vnode_notify(struct vnode *vp, uint32_t type, struct vnode_attr *vap);
+extern int spl_vfs_get_notify_attributes(struct vnode_attr *vap);
 
 #endif /* SPL_VNODE_H */

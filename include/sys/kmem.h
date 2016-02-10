@@ -73,13 +73,18 @@ extern uint64_t physmem;
 	void spl_kmem_mp_init();
 	void spl_kmem_thread_fini();
 	void spl_kmem_fini();
-	
+
     size_t kmem_size(void);
     size_t kmem_used(void);
-    size_t kmem_avail(void);
+    int64_t kmem_avail(void);
     size_t kmem_num_pages_wanted();
 	int	spl_vm_pool_low(void);
-
+  int32_t spl_minimal_physmem_p(void);
+  int64_t spl_adjust_pressure(int64_t);
+  int64_t spl_free_wrapper(void);
+  int64_t spl_free_manual_pressure_wrapper(void);
+  boolean_t spl_free_fast_pressure_wrapper(void);
+  void spl_free_set_pressure(int64_t);
 
 #define KMC_NOTOUCH     0x00010000
 #define KMC_NODEBUG     0x00020000
@@ -117,7 +122,7 @@ extern uint64_t physmem;
     void kmem_cache_reap_now(kmem_cache_t *cache);
     void kmem_reap(void);
 	void kmem_reap_idspace(void);
-	
+
     int kmem_debugging(void);
     void kmem_cache_set_move(kmem_cache_t *,
                              kmem_cbrc_t (*)(void *, void *, size_t, void *));
@@ -126,7 +131,7 @@ extern uint64_t physmem;
     char *kmem_asprintf(const char *fmt, ...);
     void strfree(char *str);
     char *kmem_vasprintf(const char *fmt, va_list ap);
-
+	void strident_canon(char *s, size_t n);
 
 
 #ifdef	__cplusplus

@@ -201,8 +201,12 @@ extern "C" {
 #define	KMEM_CPU_CACHE(cp)						\
 (&cp->cache_cpu[cpu_number()])
 
-#define	KMEM_MAGAZINE_VALID(cp, mp)	\
+#define	KMOM_MAGAZINE_VALID(cp, mp)	\
 (((kmem_slab_t *)P2END((uintptr_t)(mp), PAGESIZE) - 1)->slab_cache == \
+(cp)->cache_magtype->mt_cache)
+
+#define	KMEM_MAGAZINE_VALID(cp, mp)	\
+(((kmem_slab_t *)P2END((uintptr_t)(mp), KMEM_QUANTUM) - 1)->slab_cache == \
 (cp)->cache_magtype->mt_cache)
 
 #define	KMEM_SLAB_OFFSET(sp, buf)	\
@@ -258,7 +262,7 @@ extern "C" {
 	} kmem_magtype_t;
 
 #define	KMEM_CPU_CACHE_SIZE	128	/* must be power of 2 */
-#define	KMEM_CPU_PAD		(KMEM_CPU_CACHE_SIZE - sizeof (kmutex_t) - \
+#define	KMEM_CPU_PAD		(KMEM_CPU_CACHE_SIZE - sizeof (kmutex_t) -	\
 	2 * sizeof (uint64_t) - 2 * sizeof (void *) - sizeof (int) - \
 	5 * sizeof (short))
 #define	KMEM_CACHE_SIZE(ncpus)	\
@@ -436,7 +440,7 @@ extern "C" {
 		size_t				clh_avail;
 		int					clh_chunk;
 		int					clh_hits;
-#ifdef SPL_DEBUG_MUTEX
+#if defined (SPL_DEBUG_MUTEX)
 		char				clh_pad[128 - sizeof (kmutex_t) - sizeof (char *) -
 							sizeof (size_t) - 2 * sizeof (int)];
 #else
